@@ -2,6 +2,151 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     const BASE_URL = 'http://127.0.0.1:8000';
+    
+    // Custom Notification System
+    const showNotification = (message, type = 'info', duration = 5000) => {
+        const container = document.getElementById('notification-container');
+        if (!container) return;
+        
+        const notification = document.createElement('div');
+        const notificationId = 'notification-' + Date.now();
+        
+        // Determine colors and icons based on type
+        const typeConfig = {
+            success: {
+                bg: 'bg-green-50',
+                border: 'border-green-200',
+                text: 'text-green-800',
+                icon: 'check_circle',
+                iconColor: 'text-green-500'
+            },
+            error: {
+                bg: 'bg-red-50',
+                border: 'border-red-200',
+                text: 'text-red-800',
+                icon: 'error',
+                iconColor: 'text-red-500'
+            },
+            warning: {
+                bg: 'bg-yellow-50',
+                border: 'border-yellow-200',
+                text: 'text-yellow-800',
+                icon: 'warning',
+                iconColor: 'text-yellow-500'
+            },
+            info: {
+                bg: 'bg-blue-50',
+                border: 'border-blue-200',
+                text: 'text-blue-800',
+                icon: 'info',
+                iconColor: 'text-blue-500'
+            }
+        };
+        
+        const config = typeConfig[type] || typeConfig.info;
+        
+        notification.id = notificationId;
+        notification.className = `${config.bg} ${config.border} border rounded-lg shadow-lg p-4 max-w-sm transform transition-all duration-300 ease-in-out translate-x-full opacity-0`;
+        
+        notification.innerHTML = `
+            <div class="flex items-start">
+                <div class="flex-shrink-0">
+                    <span class="material-symbols-outlined ${config.iconColor} text-xl">${config.icon}</span>
+                </div>
+                <div class="ml-3 flex-1">
+                    <p class="${config.text} text-sm font-medium">${message}</p>
+                </div>
+                <div class="ml-4 flex-shrink-0">
+                    <button onclick="removeNotification('${notificationId}')" class="inline-flex ${config.text} hover:opacity-75 focus:outline-none">
+                        <span class="material-symbols-outlined text-lg">close</span>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        container.appendChild(notification);
+        
+        // Trigger animation
+        setTimeout(() => {
+            notification.classList.remove('translate-x-full', 'opacity-0');
+        }, 10);
+        
+        // Auto remove after duration
+        if (duration > 0) {
+            setTimeout(() => {
+                removeNotification(notificationId);
+            }, duration);
+        }
+    };
+    
+    const removeNotification = (notificationId) => {
+        const notification = document.getElementById(notificationId);
+        if (notification) {
+            notification.classList.add('translate-x-full', 'opacity-0');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.parentNode.removeChild(notification);
+                }
+            }, 300);
+        }
+    };
+    
+    // Custom Confirmation Modal
+    const showConfirmation = (message, onConfirm, onCancel = null) => {
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 z-50';
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 transform transition-all">
+                <div class="flex items-center mb-4">
+                    <span class="material-symbols-outlined text-yellow-500 text-2xl mr-3">warning</span>
+                    <h3 class="text-lg font-semibold text-gray-900">Confirm Action</h3>
+                </div>
+                <p class="text-gray-600 mb-6">${message}</p>
+                <div class="flex justify-end space-x-3">
+                    <button id="confirm-cancel" class="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-300">
+                        Cancel
+                    </button>
+                    <button id="confirm-ok" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300">
+                        Confirm
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const hideModal = () => {
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                if (modal.parentNode) {
+                    modal.parentNode.removeChild(modal);
+                }
+            }, 300);
+        };
+        
+        modal.querySelector('#confirm-ok').onclick = () => {
+            hideModal();
+            if (onConfirm) onConfirm();
+        };
+        
+        modal.querySelector('#confirm-cancel').onclick = () => {
+            hideModal();
+            if (onCancel) onCancel();
+        };
+        
+        // Close on backdrop click
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                hideModal();
+                if (onCancel) onCancel();
+            }
+        };
+    };
+    
+    // Make functions globally available
+    window.showNotification = showNotification;
+    window.removeNotification = removeNotification;
+    window.showConfirmation = showConfirmation;
     try { localStorage.removeItem('chimeraToken'); } catch (e) {}
     let appState = {
         token: null,
@@ -268,15 +413,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (del) {
                     const id = parseInt(del.getAttribute('data-analysis-id'));
                     if (!id) return;
-                    const ok = window.confirm('Delete this analysis? This cannot be undone.');
-                    if (!ok) return;
-                    try {
-                        await apiCall(`/analyses/${id}`, { method: 'DELETE' });
-                        appState.dashboardItems = appState.dashboardItems.filter(x => x.id !== id);
-                        renderDashboardList();
-                    } catch (err) {
-                        alert('Failed to delete analysis.');
-                    }
+                    showConfirmation('Delete this analysis? This cannot be undone.', async () => {
+                        try {
+                            await apiCall(`/analyses/${id}`, { method: 'DELETE' });
+                            appState.dashboardItems = appState.dashboardItems.filter(x => x.id !== id);
+                            renderDashboardList();
+                            showNotification('Analysis deleted successfully.', 'success');
+                        } catch (err) {
+                            showNotification('Failed to delete analysis.', 'error');
+                        }
+                    });
                     return;
                 }
                 // Handle export PDF button click
@@ -345,7 +491,7 @@ document.addEventListener('DOMContentLoaded', () => {
             modal.addEventListener('click', (ev) => { if (ev.target === modal) hide(); }, { once: true });
 
         } catch (err) {
-            alert('Failed to load risk justification.');
+            showNotification('Failed to load risk justification.', 'error');
         }
     };
 
@@ -411,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('Export failed:', error);
-            alert(`Export failed: ${error.message}`);
+            showNotification(`Export failed: ${error.message}`, 'error');
             
             // Reset button state
             const exportBtn = document.querySelector(`.export-pdf-btn[data-analysis-id="${analysisId}"]`);
@@ -626,7 +772,7 @@ document.addEventListener('DOMContentLoaded', () => {
             appState.token = data.access_token;
             localStorage.setItem('chimeraToken', appState.token);
             updateDashboard();
-        } catch (error) { alert(`Login failed: ${error.message}`); }
+        } catch (error) { showNotification(`Login failed: ${error.message}`, 'error'); }
     };
 
     // Click-to-highlight handlers (temporarily disabled)
@@ -726,9 +872,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const register = async (email, password) => {
         try {
             await apiCall('/users/', { method: 'POST', body: { email, password } });
-            alert('Registration successful!');
+            showNotification('Registration successful!', 'success');
             showState('dashboard');
-        } catch (error) { alert(`Registration failed: ${error.message}`); }
+        } catch (error) { showNotification(`Registration failed: ${error.message}`, 'error'); }
     };
     const logout = () => {
         appState.token = null;
@@ -868,7 +1014,7 @@ document.addEventListener('DOMContentLoaded', () => {
             eli5El.classList.remove('hidden');
             button.textContent = 'Original';
         } catch (err) {
-            alert('Failed to load ELI5 explanation.');
+            showNotification('Failed to load ELI5 explanation.', 'error');
             button.textContent = prevLabel;
         } finally {
             button.disabled = false;
@@ -1154,7 +1300,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error creating calendar event:', error);
             console.error('Event data:', event);
-            alert('Unable to create calendar reminder: ' + error.message);
+            showNotification('Unable to create calendar reminder: ' + error.message, 'error');
         }
     };
 
@@ -1232,9 +1378,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const days = parseInt(daysStr || '0') || 0;
         try {
             await apiCall('/reminders', { method: 'POST', body: { analysis_id: appState.currentAnalysis.id, event_id: eventId, email, days_before: days } });
-            alert('Reminder scheduled.');
+            showNotification('Reminder scheduled.', 'success');
         } catch (err) {
-            alert('Could not schedule reminder.');
+            showNotification('Could not schedule reminder.', 'error');
         }
     });
 });

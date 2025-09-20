@@ -38,3 +38,11 @@ data/uploads/
 chimera_app.db
 benchmark.db
 *.json
+
+.qodo
+
+# Development files
+scripts/setup_benchmark_db.py
+project-chimera.code-workspace
+AGENTS.md
+
