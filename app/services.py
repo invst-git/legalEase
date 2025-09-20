@@ -5,7 +5,7 @@ import google.generativeai as genai
 from dotenv import load_dotenv
 from app.schemas import IntelligentAnalysis
 from google.cloud import vision
-from google.generativeai.types import HarmCategory, HarmBlockThreshold, GenerationConfig
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 try:
     from google.cloud import documentai_v1 as documentai
 except Exception:
@@ -29,21 +29,52 @@ DB_BACKEND = os.getenv("DB_BACKEND", "").lower()
 AI_PROVIDER = os.getenv("AI_PROVIDER", "").lower()
 
 # Configure AI model
-try:
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-except Exception:
-    print("Error: GOOGLE_API_KEY not found or invalid.")
-    model = None
+model = None
+if AI_PROVIDER == "vertex":
+    # Use Vertex AI - no API key needed, uses service account
+    try:
+        import vertexai
+        from vertexai.generative_models import GenerativeModel, GenerationConfig
+        from vertexai.generative_models import HarmCategory as VertexHarmCategory, HarmBlockThreshold as VertexHarmBlockThreshold
+        
+        project = os.getenv("VERTEX_PROJECT", "chimera-00")
+        location = os.getenv("VERTEX_LOCATION", "us-central1")
+        model_name = os.getenv("VERTEX_MODEL", "gemini-1.5-flash")
+        
+        vertexai.init(project=project, location=location)
+        model = GenerativeModel(model_name)
+        print(f"Vertex AI model initialized: {model_name}")
+    except Exception as e:
+        print(f"Error: Vertex AI initialization failed: {e}")
+        model = None
+else:
+    # Use Google AI API
+    try:
+        from google.generativeai.types import GenerationConfig
+        genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+    except Exception:
+        print("Error: GOOGLE_API_KEY not found or invalid.")
+        model = None
 
 # Define safety settings appropriate for analyzing professional/legal documents
 # This reduces the chance of false positives on dense legal text.
-SAFETY_SETTINGS = {
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-}
+if AI_PROVIDER == "vertex":
+    # Vertex AI safety settings
+    SAFETY_SETTINGS = {
+        VertexHarmCategory.HARM_CATEGORY_HARASSMENT: VertexHarmBlockThreshold.BLOCK_NONE,
+        VertexHarmCategory.HARM_CATEGORY_HATE_SPEECH: VertexHarmBlockThreshold.BLOCK_NONE,
+        VertexHarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: VertexHarmBlockThreshold.BLOCK_NONE,
+        VertexHarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: VertexHarmBlockThreshold.BLOCK_NONE,
+    }
+else:
+    # Google AI API safety settings
+    SAFETY_SETTINGS = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
 
 # Enforce concise assessments (2-3 sentences, reasonable length)
 def _shorten_assessment(text: str, max_sentences: int = 3, max_chars: int = 600) -> str:
@@ -528,6 +559,9 @@ async def full_analysis_to_intelligent(fa: schemas.FullAnalysisResponse) -> sche
 
 # --- Timeline generation ---
 async def generate_timeline(db: Session, analysis_id: int, owner_id: int) -> schemas.TimelineResponse:
+    if not model:
+        return schemas.TimelineResponse(lifecycle_summary="Timeline unavailable - AI model not initialized.", events=[])
+    
     fa = await get_full_analysis(db, analysis_id, owner_id)
     # Build prompts with extracted text and key info to identify dates/events
     doc_text = "\n".join(fa.extracted_text or [])
@@ -561,7 +595,8 @@ async def generate_timeline(db: Session, analysis_id: int, owner_id: int) -> sch
     try:
         response = await model.generate_content_async(prompt, safety_settings=SAFETY_SETTINGS, generation_config=generation_config)
         data = json.loads((response.text or "{}").strip())
-    except Exception:
+    except Exception as e:
+        print(f"Timeline generation error: {e}")
         data = {"lifecycle_summary": "Timeline unavailable.", "events": []}
 
     # Persist events

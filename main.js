@@ -1,7 +1,10 @@
 'use strict';
 
 document.addEventListener('DOMContentLoaded', () => {
-    const BASE_URL = 'http://127.0.0.1:8000';
+    // Dynamic API URL based on environment
+    const BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        ? 'http://127.0.0.1:8000' 
+        : `${window.location.protocol}//${window.location.host}/api`;
     
     // Custom Notification System
     const showNotification = (message, type = 'info', duration = 5000) => {
@@ -1309,7 +1312,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const trackEl = document.getElementById('timeline-track');
         const listEl = document.getElementById('timeline-events');
         if (!summaryEl || !trackEl || !listEl) return;
-        summaryEl.textContent = data.lifecycle_summary || '';
+        // Only update lifecycle summary if new data has one, otherwise preserve existing
+        if (data.lifecycle_summary) {
+            summaryEl.textContent = data.lifecycle_summary;
+        }
         listEl.innerHTML = '';
         // Vertical markers are implicit via CSS; we render event cards aligned to the line
         const events = Array.isArray(data.events) ? data.events.slice() : [];

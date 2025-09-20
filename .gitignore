@@ -1,48 +1,138 @@
-# Python
+# --- Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.egg-info/
-dist/
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Virtual Environment
-venv/
-.venv/
-env/
-.env
+# --- Virtual envs
+venv*/ 
+env*/ 
 
-# IDE / Editor specific
+# --- IDE / Editors
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+.ropeproject
 
-# Data files (we will specify exceptions later if needed)
-data/*.csv
-data/*.json
-data/*.pdf
-
-# Notebook checkpoints
-.ipynb_checkpoints/
-
-# OS-specific
+# --- OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# Environment variables
-.env
+# --- Git / CI
+.git/
+.gitignore
+.gitattributes
+.github/
+.gitmodules
+.vscode/
+.vercel/          # Vercel local metadata
+
+# --- Docs (optional)
+# *.md
+docs/
+
+# --- Databases
 *.db
 *.sqlite
 *.sqlite3
-data/uploads/
-chimera_app.db
-benchmark.db
+
+# --- Logs / coverage / tests
+*.log
+logs/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+tests/
+test_*
+*_test.py
+
+# --- Notebooks
+.ipynb_checkpoints
+
+# --- Tooling files
+.python-version
+Pipfile.lock
+__pypackages__/
+
+# --- Task queues / misc
+celerybeat-schedule
+celerybeat.pid
+.pyre/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# --- Node (if present)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Docker
+# NOTE: Usually fine to ignore these from build context.
+# Docker CLI reads Dockerfile locally, Vercel sees it in repo—no issue.
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# --- Large app data (keep placeholders)
+data/uploads/*
+!data/uploads/.gitkeep
+data/sample_docs/*
+!data/sample_docs/.gitkeep
+
+# --- Temp
+tmp/
+temp/
+
+# --- Secrets & credentials (critical)
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+*.keystore
+*.jks
+secrets/*
+# Google Cloud / service accounts
 *.json
+!package.json           # keep Node manifests if present
+# If you *must* include a specific credential file at runtime, whitelist it explicitly:
+# !gcp-service-account.public-only.json
 
-.qodo
-
-# Development files
-scripts/setup_benchmark_db.py
-project-chimera.code-workspace
-AGENTS.md
-
+# --- Migrations (ensure they are kept if you use Alembic)
+# If you have an /alembic or /migrations folder, DO NOT ignore it:
+# (Add negative rules if any broad pattern would swallow them)
+!alembic/**
+!migrations/**
+.vercel

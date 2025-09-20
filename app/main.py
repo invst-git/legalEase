@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Response
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Response, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -6,6 +6,7 @@ from jose import JWTError, jwt
 import json
 import os
 import io
+import pypdf
 
 from app import models, schemas, auth, services, utils
 from app.database import SessionLocal, create_db_and_tables
@@ -14,20 +15,51 @@ from app import repository as fs_repo
 
 create_db_and_tables()
 
+# When running on Vercel, the app lives under /api
+root_path = "/api" if os.getenv("VERCEL") else ""
 app = FastAPI(
     title="Project Chimera",
     description="An AI-powered legal document analysis and co-pilot.",
     version="0.1.0",
+    root_path=root_path,
 )
 
-origins = ["*"]
+# Add /api prefix to all routes for Cloud Run deployment
+api_router = APIRouter(prefix="/api")
+
+# CORS: allow your preview/prod Vercel URL + local dev
+vercel_host = os.getenv("VERCEL_URL")  # e.g. proj-user.vercel.app
+custom_frontend = os.getenv("FRONTEND_ORIGIN")  # optional override
+origins = {
+    "http://localhost:3000",
+    "http://localhost:5173",
+}
+if vercel_host:
+    origins.add(f"https://{vercel_host}")
+if custom_frontend:
+    origins.add(custom_frontend)
+origins = list(origins)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve static files
+@app.get("/")
+async def read_index():
+    return FileResponse("index.html")
+
+@app.get("/main.js")
+async def read_main_js():
+    return FileResponse("main.js")
+
+@app.get("/favicon.ico")
+async def read_favicon():
+    return FileResponse("favicon.ico")
 
 def get_db():
     db = SessionLocal()
@@ -58,7 +90,7 @@ async def get_current_user(token: str | None = Depends(oauth2_scheme), db: Sessi
         return _Anonymous()
     return user
 
-@app.post("/users/", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
+@api_router.post("/users/", response_model=schemas.User, status_code=status.HTTP_201_CREATED)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(models.User).filter(models.User.email == user.email).first()
     if db_user:
@@ -70,7 +102,7 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     db.refresh(new_user)
     return new_user
 
-@app.post("/token", response_model=schemas.Token)
+@api_router.post("/token", response_model=schemas.Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == form_data.username).first()
     if not user or not auth.verify_password(form_data.password, user.hashed_password):
@@ -78,11 +110,11 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = auth.create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/analyses/me", response_model=list[schemas.AnalysisResult])
+@api_router.get("/analyses/me", response_model=list[schemas.AnalysisResult])
 async def read_user_analyses(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return db.query(models.Analysis).filter(models.Analysis.owner_id == current_user.id).all()
 
-@app.post("/analyze", response_model=schemas.IntelligentAnalysis)
+@api_router.post("/analyze", response_model=schemas.IntelligentAnalysis)
 async def analyze_document(
     document: UploadFile = File(...), 
     db: Session = Depends(get_db), 
@@ -165,8 +197,13 @@ async def analyze_document(
             # Save original PDF to GCS (optional best-effort)
             try:
                 if (document.content_type or '').lower() == 'application/pdf':
+                    print(f"Uploading original PDF for analysis {analysis_result.id}")
                     fs_repo.upload_original_pdf(int(analysis_result.id), raw_bytes)
-            except Exception:
+                    print(f"Successfully uploaded original PDF for analysis {analysis_result.id}")
+                else:
+                    print(f"Skipping PDF upload for non-PDF file: {document.content_type}")
+            except Exception as e:
+                print(f"Failed to upload original PDF for analysis {analysis_result.id}: {e}")
                 pass
             return analysis_result
         except Exception as e:
@@ -209,7 +246,7 @@ async def analyze_document(
     return analysis_result
 
 
-@app.get("/analyses/{analysis_id}/file")
+@api_router.get("/analyses/{analysis_id}/file")
 async def get_analysis_file(analysis_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     # Ownership check via existing helper (non-disruptive)
     try:
@@ -223,7 +260,8 @@ async def get_analysis_file(analysis_id: int, db: Session = Depends(get_db), cur
             url = fs_repo.get_original_pdf_signed_url(int(analysis_id))
             if url:
                 return RedirectResponse(url)
-        except Exception:
+        except Exception as e:
+            print(f"Signed URL generation failed: {e}")
             pass
         # Fallback: attempt to stream (not optimal for large files)
         try:
@@ -231,12 +269,14 @@ async def get_analysis_file(analysis_id: int, db: Session = Depends(get_db), cur
             st, bucket = fs_repo._st_client_bucket()  # type: ignore
             blob = bucket.blob(f"analyses/{analysis_id}/original.pdf")
             if not blob.exists():
+                print(f"Original PDF not found in GCS: analyses/{analysis_id}/original.pdf")
                 raise HTTPException(status_code=404, detail="Original file not found")
             data = blob.download_as_bytes()
             return StreamingResponse(io.BytesIO(data), media_type='application/pdf', headers={'Content-Disposition': 'inline'})
         except HTTPException:
             raise
-        except Exception:
+        except Exception as e:
+            print(f"GCS streaming failed: {e}")
             raise HTTPException(status_code=404, detail="Original file not found")
 
     # SQLite path: stream local file if present
@@ -245,7 +285,7 @@ async def get_analysis_file(analysis_id: int, db: Session = Depends(get_db), cur
         raise HTTPException(status_code=404, detail="Original file not found")
     return FileResponse(local_path, media_type='application/pdf', headers={'Content-Disposition': 'inline'})
 
-@app.post("/simulate", response_model=schemas.SimulationResponse)
+@api_router.post("/simulate", response_model=schemas.SimulationResponse)
 async def simulate_risk(request: schemas.SimulationRequest, current_user: schemas.User = Depends(get_current_user)):
     # The 'key_info' from the request is already a list of dicts, no conversion needed.
     simulation_result = await services.get_risk_simulation(
@@ -255,7 +295,7 @@ async def simulate_risk(request: schemas.SimulationRequest, current_user: schema
     )
     return schemas.SimulationResponse(simulation_text=simulation_result)
 
-@app.post("/rewrite", response_model=schemas.RewriteResponse)
+@api_router.post("/rewrite", response_model=schemas.RewriteResponse)
 async def rewrite_clause(request: schemas.RewriteRequest, current_user: schemas.User = Depends(get_current_user)):
     rewritten_versions = await services.get_clause_rewrites(
         clause_key=request.clause_key,
@@ -264,7 +304,7 @@ async def rewrite_clause(request: schemas.RewriteRequest, current_user: schemas.
     )
     return schemas.RewriteResponse(rewritten_clauses=rewritten_versions)
 
-@app.post("/analyses/{analysis_id}/locate", response_model=schemas.LocateResponse)
+@api_router.post("/analyses/{analysis_id}/locate", response_model=schemas.LocateResponse)
 async def locate_highlight(
     analysis_id: int,
     request: schemas.LocateRequest,
@@ -282,7 +322,7 @@ async def locate_highlight(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Locate failed: {e}")
 
-@app.post("/benchmark", response_model=schemas.BenchmarkResponse)
+@api_router.post("/benchmark", response_model=schemas.BenchmarkResponse)
 async def benchmark_clause(request: schemas.BenchmarkRequest, current_user: schemas.User = Depends(get_current_user)):
     benchmark_data = await services.get_clause_benchmark(
         clause_text=request.clause_text,
@@ -290,7 +330,7 @@ async def benchmark_clause(request: schemas.BenchmarkRequest, current_user: sche
     )
     return schemas.BenchmarkResponse(**benchmark_data)
 
-@app.post("/query", response_model=schemas.QueryResponse)
+@api_router.post("/query", response_model=schemas.QueryResponse)
 async def query_document(request: schemas.QueryRequest, current_user: schemas.User = Depends(get_current_user)):
     """
     Accepts a user question and returns an answer based on the document context.
@@ -311,28 +351,28 @@ async def query_document(request: schemas.QueryRequest, current_user: schemas.Us
     citation = result.get("citation", "")
     return schemas.QueryResponse(answer=answer, citation=citation)
 
-@app.get("/analyses/dashboard", response_model=list[schemas.DashboardItem])
+@api_router.get("/analyses/dashboard", response_model=list[schemas.DashboardItem])
 async def get_dashboard_items(db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return await services.get_dashboard_list(db, current_user.id)
 
-@app.get("/analyses/{analysis_id}", response_model=schemas.FullAnalysisResponse)
+@api_router.get("/analyses/{analysis_id}", response_model=schemas.FullAnalysisResponse)
 async def get_analysis(analysis_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return await services.get_full_analysis(db, analysis_id, current_user.id)
 
-@app.post("/timeline", response_model=schemas.TimelineResponse)
+@api_router.post("/timeline", response_model=schemas.TimelineResponse)
 async def generate_timeline(request: schemas.TimelineRequest, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return await services.generate_timeline(db, request.analysis_id, current_user.id)
 
-@app.get("/timeline/{analysis_id}", response_model=schemas.TimelineResponse)
+@api_router.get("/timeline/{analysis_id}", response_model=schemas.TimelineResponse)
 async def list_timeline(analysis_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     return await services.list_timeline(db, analysis_id, current_user.id)
 
-@app.post("/reminders", response_model=schemas.ReminderResponse)
+@api_router.post("/reminders", response_model=schemas.ReminderResponse)
 async def create_reminder(request: schemas.ReminderRequest, current_user: schemas.User = Depends(get_current_user)):
     ok = await services.save_reminder(request.analysis_id, request.event_id, request.email, request.days_before)
     return schemas.ReminderResponse(success=ok)
 
-@app.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+@api_router.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_analysis(analysis_id: int, db: Session = Depends(get_db), current_user: schemas.User = Depends(get_current_user)):
     # Firestore path: lightweight ownership check, then delete
     if os.getenv("DB_BACKEND", "").lower() == "firestore":
@@ -349,7 +389,7 @@ async def delete_analysis(analysis_id: int, db: Session = Depends(get_db), curre
     await services.delete_analysis(db, analysis_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-@app.get("/analyses/{analysis_id}/export")
+@api_router.get("/analyses/{analysis_id}/export")
 async def export_analysis_pdf(
     analysis_id: int, 
     db: Session = Depends(get_db), 
@@ -424,8 +464,13 @@ async def export_analysis_pdf(
                 st, bucket = fs_repo._st_client_bucket()  # type: ignore
                 blob = bucket.blob(f"analyses/{analysis_id}/original.pdf")
                 if blob.exists():
+                    print(f"Found original PDF in GCS for analysis {analysis_id}")
                     original_bytes = blob.download_as_bytes()
-            except Exception:
+                    print(f"Successfully downloaded original PDF for analysis {analysis_id}")
+                else:
+                    print(f"Original PDF not found in GCS for analysis {analysis_id}")
+            except Exception as e:
+                print(f"Failed to retrieve original PDF from GCS for analysis {analysis_id}: {e}")
                 pass
         else:
             # SQLite path - try local file
@@ -488,3 +533,11 @@ async def export_analysis_pdf(
             "Content-Length": str(len(final_pdf_bytes))
         }
     )
+
+# Include the API router
+app.include_router(api_router)
+
+# Add docs route
+@app.get("/docs")
+async def get_docs():
+    return RedirectResponse(url="/docs")

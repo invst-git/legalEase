@@ -415,18 +415,84 @@ alembic upgrade head
 
 ### Docker Deployment
 
-```dockerfile
-FROM python:3.10-slim
+The application includes comprehensive Docker support for both development and production deployments.
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+#### Quick Start with Docker
 
-COPY . .
-EXPOSE 8000
+1. **Build and run with Docker Compose** (recommended for development):
+   ```bash
+   # Create .env file with your configuration
+   cp .env.example .env
+   # Edit .env with your API keys and settings
+   
+   # Start the application
+   docker-compose up --build
+   ```
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+2. **Build and run with Docker directly**:
+   ```bash
+   # Build the image
+   docker build -t project-chimera .
+   
+   # Run the container
+   docker run -p 8000:8000 --env-file .env project-chimera
+   ```
+
+#### Docker Configuration
+
+The project includes several Docker-related files:
+
+- **`Dockerfile`**: Multi-stage build with security best practices
+- **`docker-compose.yml`**: Development and production configurations
+- **`.dockerignore`**: Optimized build context
+- **`nginx.conf`**: Production reverse proxy configuration
+
+#### Environment Variables
+
+Create a `.env` file with the following variables:
+
+```env
+# Required
+GOOGLE_API_KEY=your_google_api_key_here
+
+# Optional
+DB_BACKEND=sqlite  # or 'firestore'
+AI_PROVIDER=google
+COMPANY_NAME=Your Company Name
+EXPORT_PDF_ENABLED=true
+
+# Firestore Configuration (if using Firestore)
+GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account.json
+FIRESTORE_PROJECT_ID=your-project-id
+GCS_BUCKET=your-storage-bucket
+
+# Security
+SECRET_KEY=your-secret-key-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
 ```
+
+#### Production Deployment
+
+For production deployment with nginx reverse proxy:
+
+```bash
+# Start with nginx proxy
+docker-compose --profile production up -d
+
+# Or build and run production image
+docker build -t project-chimera:prod .
+docker run -d -p 80:80 -p 443:443 --env-file .env project-chimera:prod
+```
+
+#### Docker Features
+
+- **Security**: Non-root user, minimal attack surface
+- **Health Checks**: Built-in health monitoring
+- **Volume Mounts**: Persistent data storage
+- **Rate Limiting**: Nginx-based request limiting
+- **SSL Support**: Ready for HTTPS configuration
+- **Multi-stage Build**: Optimized image size
 
 ### Cloud Deployment
 

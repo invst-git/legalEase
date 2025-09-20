@@ -1,0 +1,43 @@
+﻿# Files NOT uploaded to Cloud Build (syntax like .gitignore)
+# Keep Dockerfile and requirements.txt INCLUDED.
+
+# Exclude VCS/IDE
+.git/
+.qodo/
+.vscode/
+.idea/
+
+# Python caches & venv
+__pycache__/
+*.py[cod]
+venv/
+env/
+ENV/
+
+# Local env & secrets
+.env
+chimera-00-*.json
+secrets/
+
+# Databases / logs / temp
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+tmp/
+temp/
+
+# Node junk (if any)
+node_modules/
+npm-debug.log*
+yarn-*.log
+
+# Don’t exclude these critical files:
+!Dockerfile
+!requirements.txt
+!app/**
+!index.html
+!main.js
+!CON_file.js
+!README.md
