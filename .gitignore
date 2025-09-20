@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+venv/
+.venv/
+env/
+.env
+
+# IDE / Editor specific
+.vscode/
+.idea/
+
+# Data files (we will specify exceptions later if needed)
+data/*.csv
+data/*.json
+data/*.pdf
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+*.db
+*.sqlite
+*.sqlite3
+data/uploads/
+chimera_app.db
+benchmark.db
+*.json
